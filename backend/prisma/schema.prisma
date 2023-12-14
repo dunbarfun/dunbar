@@ -1,0 +1,168 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id String @id @default(cuid())
+
+  // Regular user details
+  supabaseUserId String  @unique
+  username       String? @unique
+  name           String?
+  avatar         String?
+
+  participants Participant[]
+  transactions Transaction[]
+
+  ownedSeeds  Seed[] @relation("owner")
+  issuedSeeds Seed[] @relation("issuer")
+
+  wallet Wallet? @relation(fields: [walletId], references: [id])
+
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  walletId  String?
+  Channel   Channel[]
+  Bookmark  Bookmark[]
+
+  @@index(fields: [createdAt])
+  @@map("users")
+}
+
+model Wallet {
+  id String @id @default(cuid())
+
+  seed       String @unique
+  privateKey String @unique
+  publicKey  String @unique
+
+  balance Float @default(0)
+
+  User User[]
+
+  @@map("wallets")
+}
+
+model Seed {
+  id    String @id @default(cuid())
+  index Int // goes from 0 - 150
+
+  issuer   User   @relation(fields: [issuerId], references: [id], name: "issuer")
+  issuerId String
+
+  owner   User   @relation(fields: [ownerId], references: [id], name: "owner")
+  ownerId String
+
+  @@index(fields: [issuerId, index])
+  @@map("seeds")
+}
+
+enum TransactionType {
+  MINT
+  BUY
+  SELL
+}
+
+model Transaction {
+  id String @id @default(cuid())
+
+  type TransactionType
+  txid String          @unique
+
+  context Json
+
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  createdAt DateTime @default(now())
+
+  @@map("transactions")
+}
+
+// Participant is a user in a channel
+model Participant {
+  id String @id @default(cuid())
+
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  channel   Channel   @relation(fields: [channelId], references: [id])
+  channelId String
+  messages  Message[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([channelId, userId])
+  @@map("participants")
+}
+
+model Channel {
+  id String @id @default(cuid())
+
+  owner   User   @relation(fields: [ownerId], references: [id])
+  ownerId String
+
+  participants Participant[]
+  messages     Message[]
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookmarks Bookmark[]
+
+  @@map("channels")
+}
+
+model Bookmark {
+  id String @id @default(cuid())
+
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  channel   Channel @relation(fields: [channelId], references: [id])
+  channelId String
+
+  lastSeen String
+
+  @@unique([userId, channelId])
+  @@map("bookmarks")
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  AUDIO
+}
+
+model Message {
+  id Int @id @default(autoincrement())
+
+  type    MessageType
+  message String
+  context Json
+
+  author   Participant @relation(fields: [authorId], references: [id])
+  authorId String
+
+  channel   Channel @relation(fields: [channelId], references: [id])
+  channelId String
+
+  isDeleted Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index(fields: [authorId, createdAt])
+  @@index(fields: [createdAt])
+  @@index(fields: [channelId])
+  @@map("messages")
+}

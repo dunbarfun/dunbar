@@ -1,0 +1,9 @@
+.react-email
+.env
+firebase.json
+.vscode
+node_modules
+dump.rdb
+
+dist
+.DS_Store
