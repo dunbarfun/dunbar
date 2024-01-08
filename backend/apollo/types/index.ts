@@ -1,18 +1,12 @@
 import user from '@/apollo/types/user';
-import participant from '@/apollo/types/participant';
-import channel from '@/apollo/types/channel';
-import message from '@/apollo/types/message';
 import wallet from '@/apollo/types/wallet';
 import seed from '@/apollo/types/seed';
-import transaction from '@/apollo/types/transaction';
+import event from '@/apollo/types/event';
 
 
 export default [
+  event,
   user,
-  participant,
-  channel,
-  message,
   wallet,
   seed,
-  transaction
 ];

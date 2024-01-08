@@ -9,7 +9,8 @@
     "db:deploy": "npx prisma migrate deploy",
     "db:reset": "npx prisma db push --force-reset && ts-node prisma/seed.ts",
     "db:seed": "ts-node prisma/seed.ts",
-    "run:example": "yarn build && node dist/scripts/example.js"
+    "run:example": "yarn build && node dist/scripts/example.js",
+    "run:faucet": "yarn build && node dist/scripts/faucet.js"
   },
   "license": "MIT",
   "dependencies": {
@@ -19,11 +20,14 @@
     "@graphql-tools/schema": "^10.0.0",
     "@logtail/node": "^0.1.12",
     "@logtail/winston": "^0.1.13",
+    "@mysten/sui.js": "^0.48.1",
     "@prisma/client": "^5.4.2",
     "@prisma/extension-read-replicas": "^0.2.2",
     "@react-email/button": "^0.0.10",
     "@react-email/components": "^0.0.7",
     "@react-email/html": "^0.0.4",
+    "@scallop-io/sui-kit": "^0.44.2",
+    "@scure/bip39": "^1.2.2",
     "@sentry/node": "^7.14.2",
     "@slack/bolt": "^3.12.2",
     "@supabase/supabase-js": "^2.31.0",

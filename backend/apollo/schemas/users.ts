@@ -20,10 +20,19 @@ export default ({ db, userManager }: Dependencies) => {
       error: String
     }
 
+    type UserPriceResponse {
+      success: Boolean
+      buyPrice: Float
+      sellPrice: Float
+      shares: Int
+    }
+
     extend type Query {
       me: User
       getWallets: [Wallet]
       getUsers: [User]
+      getUserPrices(userId: String!): UserPriceResponse
+      getEvents: [Event]
     }
 
     type TradeResponse {
@@ -34,6 +43,8 @@ export default ({ db, userManager }: Dependencies) => {
       auth(supabaseToken: String!, provider: String, email: String): AuthResponse!
       updateUser(username: String, avatar: String, name: String): UserUpdateResponse!
       mintSeed(ofUserId: String!, amount: Int): TradeResponse!
+      sellSeed(ofUserId: String!, amount: Int): TradeResponse!
+      withdraw(address: String): Boolean!
     }
   `;
 
@@ -41,13 +52,37 @@ export default ({ db, userManager }: Dependencies) => {
     Query: {
       // @ts-ignore
       me: async (parent, args, ctx) => {
-        const userId = ctx.userId!;
-        return await userManager.getUser(userId);
+        try {
+          const userId = ctx.userId!;
+          return await userManager.getUser(userId);
+        } catch (e) {
+          return null
+        }
       },
       // @ts-ignore
       getUsers: async (parent, args, ctx) => {
         return await userManager.getUsers()
-      }
+      },
+      // @ts-ignore
+      getUserPrices: async (parent, { userId }, ctx) => {
+        try {
+          const res = await userManager.getUserPrices(userId)
+          return {
+            success: true,
+            ...res,
+          }
+        } catch (e) {
+          return {
+            success: false,
+            error: e.message,
+          }
+        }
+      },
+      // @ts-ignore
+      getEvents: async (parent, args, ctx) => {
+        const userId = ctx.userId!;
+        return await userManager.getEvents(userId);
+      },
     },
     Mutation: {
       // @ts-ignore
@@ -96,6 +131,16 @@ export default ({ db, userManager }: Dependencies) => {
       mintSeed: async (parent, { ofUserId, amount }, ctx) => {
         const userId = ctx.userId
         return await userManager.mintSeed(ofUserId, userId, amount || 1)
+      },
+      // @ts-ignore
+      sellSeed: async (parent, { ofUserId, amount }, ctx) => {
+        const userId = ctx.userId
+        return await userManager.sellSeed(ofUserId, userId, amount || 1)
+      },
+      // @ts-ignore
+      withdraw: async (parent, { address }, ctx) => {
+        const userId = ctx.userId
+        return await userManager.withdraw(userId, address)
       },
     }
   };

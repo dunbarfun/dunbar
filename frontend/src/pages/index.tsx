@@ -24,8 +24,6 @@ export default function Home() {
                 router.push('/onboarding/name')
             } else if (!user.username) {
                 router.push('/onboarding/username')
-            } else if (!user.avatar) {
-                router.push('/onboarding/avatar')
             } else {
                 router.push('/chats')
             }

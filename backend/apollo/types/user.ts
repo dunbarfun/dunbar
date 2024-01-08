@@ -8,13 +8,15 @@ export default gql`
     issuedSeeds: [Seed]
     wallet: Wallet
     streamToken: String
-    
+
     username: String
     name: String
     avatar: String
 
-    transactions: [Transaction]
     price: Float
+    buyPrice: Float
+    sellPrice: Float
+    shares: Float
 
     createdAt: DateTime
     updatedAt: DateTime

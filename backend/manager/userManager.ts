@@ -8,6 +8,18 @@ import supabase from '@/lib/supabase';
 import transformMessage from '@/lib/transformMessage';
 import _ from 'lodash';
 import { v4 as uuidv4 } from 'uuid';
+import dunbarClient from '@/lib/dunbarClient';
+
+import {
+  generateWallet,
+} from '@/lib/passphrase';
+import sui from '@/lib/sui';
+import getBalance from '@/lib/getBalance';
+import { MIST_PER_SUI } from '@mysten/sui.js/utils';
+import { TransactionBlock } from "@mysten/sui.js/transactions";
+import { deriveKeypair } from '@/lib/passphrase';
+
+const GAS_BUDGET = 100_000_000n; // 0.1 SUI
 
 export default (db: DatabaseClient, stream: StreamClient) => {
   return {
@@ -30,13 +42,13 @@ export default (db: DatabaseClient, stream: StreamClient) => {
         },
       });
       if (user == null) {
+        const { mnemonic, publicKey } = generateWallet();
         // Create wallet
         const wallet = await db.wallet.create({
           data: {
-            seed: uuidv4(),
-            privateKey: uuidv4(),
-            publicKey: uuidv4(),
-            balance: 1000,
+            mnemonic,
+            publicKey,
+            balance: 0,
           },
         });
 
@@ -69,30 +81,10 @@ export default (db: DatabaseClient, stream: StreamClient) => {
         },
       });
 
-      // Minting
-      const ownedSeeds = await db.seed.findMany({
-        where: {
-          ownerId: userId,
-        },
-        include: {
-          issuer: true,
-        },
-      });
-
-      const transactions = ownedSeeds.map(seed => ({
-        id: seed.id,
-        type: 'BUY',
-        quantity: 1,
-        priceSUI: 1000,
-        ofUser: seed.issuer,
-        byUser: user,
-      }));
-
       if (!user) {
         return null;
       }
-
-      return { ...user, transactions };
+      return user;
     },
 
     getUsers: async function () {
@@ -100,9 +92,35 @@ export default (db: DatabaseClient, stream: StreamClient) => {
         include: {
           wallet: true,
         },
+        where: {
+          initialized: true,
+        },
       });
-      // TODO: Replace price here
-      return users.map(u => ({ ...u, price: 1000 }));
+
+      const cache = {}
+      for (const user of users) {
+        const userObjectId = user.userObjectId;
+        if (userObjectId == null) {
+          continue;
+        }
+        const userPrices = await dunbarClient.getUserPrice(userObjectId);
+        // @ts-ignore
+        cache[user.id] = userPrices;
+        /*
+        // TODO: use a cache here
+        console.log('userPrices', userPrices);
+        // const existingUserPrices = USER_PRICE_CACHE.get(userObjectId);
+        // USER_PRICE_CACHE.set(userObjectId, userPrices);
+        */
+      }
+
+      return users.map(user => ({
+        ...user,
+        // @ts-ignore
+        ...cache[user.id],
+        // @ts-ignore
+        price: cache[user.id]?.buyPrice != null ? cache[user.id].buyPrice / Number(MIST_PER_SUI) : 0,
+      }));
     },
 
     isValidUsername: async function (
@@ -207,16 +225,16 @@ export default (db: DatabaseClient, stream: StreamClient) => {
           index = lastSeed.index;
         }
 
-        // TODO: Replace with actual price
-        const seedPrice = 1000;
-
         const byUser = await db.user.findFirst({
           where: {
             id: byUserId,
           },
+          include: {
+            wallet: true,
+          },
         });
 
-        if (!byUser) {
+        if (byUser == null) {
           throw new Error('By user not found');
         }
 
@@ -224,16 +242,60 @@ export default (db: DatabaseClient, stream: StreamClient) => {
           where: {
             id: ofUserId,
           },
+          include: {
+            wallet: true,
+          },
+        });
+        if (!ofUser) {
+          throw new Error('Of user not found');
+        }
+
+        const ofUserObjectId = ofUser.userObjectId;
+        if (ofUserObjectId == null) {
+          throw new Error('Of user not yet initialized');
+        }
+        if (byUser.wallet == null || byUser.walletId == null) {
+          throw new Error('By user wallet not yet initialized');
+        }
+        const userPrices = await dunbarClient.getUserPrice(ofUserObjectId);
+        const seedPrice = userPrices.buyPrice;
+        const byUserBalance = await sui.getBalance({
+          owner: byUser.wallet.publicKey,
+        });
+        const byUserTotalBalance = byUserBalance.totalBalance;
+
+        // Make sure user has enough money to mint
+        if (Number(byUserTotalBalance) < seedPrice) {
+          throw new Error('Not enough money to mint');
+        }
+
+        // Ok, we have enough: let's build and execute the txn
+        const tx = new TransactionBlock();
+        await dunbarClient.buyShares(tx, {
+          userId: ofUserObjectId,
+          numShares: 1,
+          payment: seedPrice,
+        });
+        const keypair = deriveKeypair(byUser.wallet.mnemonic);
+        const result = await sui.signAndExecuteTransactionBlock({
+          transactionBlock: tx,
+          signer: keypair,
+          options: {
+            showEvents: true,
+            showEffects: true,
+            showObjectChanges: true,
+            showBalanceChanges: true,
+          },
         });
 
+        // Update user's balance after minting (check the chain);
+        const suiAmount = await getBalance(byUser.wallet.publicKey)
         await db.wallet.update({
           where: {
-            id: byUser.walletId!,
+            id: byUser.walletId,
           },
           data: {
-            balance: {
-              decrement: seedPrice,
-            },
+            balance: suiAmount,
           },
         });
 
@@ -280,12 +342,23 @@ export default (db: DatabaseClient, stream: StreamClient) => {
             })),
           });
         } else {
-          await db.participant.create({
-            data: {
+          // If there's already a participant, don't create a new one
+          const existingParticipant = await db.participant.findFirst({
+            where: {
               channelId,
               userId: byUserId,
             },
           });
+          if (!existingParticipant) {
+            await db.participant.create({
+              data: {
+                channelId,
+                userId: byUserId,
+              },
+            });
+          } else {
+            console.log('participant already exists, no need to create');
+          }
         }
 
         const filter = { id: { $in: [channelId] } };
@@ -319,6 +392,240 @@ export default (db: DatabaseClient, stream: StreamClient) => {
         console.log('err', err);
         return { success: false };
       }
+    },
+    sellSeed: async function (
+      ofUserId: string,
+      byUserId: string,
+      amount: number
+    ) {
+      try {
+        const byUser = await db.user.findFirst({
+          where: {
+            id: byUserId,
+          },
+          include: {
+            wallet: true,
+          },
+        });
+        console.log('byUser', byUser);
+        if (byUser == null) {
+          throw new Error('By user not found');
+        }
+        const byUserObjectId = byUser.userObjectId;
+        if (byUserObjectId == null) {
+          throw new Error('By user not yet initialized');
+        }
+        const ofUser = await db.user.findFirst({
+          where: {
+            id: ofUserId,
+          },
+          include: {
+            wallet: true,
+          },
+        });
+        if (!ofUser) {
+          throw new Error('Of user not found');
+        }
+
+        const ofUserObjectId = ofUser.userObjectId;
+        if (ofUserObjectId == null) {
+          throw new Error('Of user not yet initialized');
+        }
+        if (byUser.wallet == null || byUser.walletId == null) {
+          throw new Error('By user wallet not yet initialized');
+        }
+
+        // Ok, first let's check if the user has enough seeds to sell
+        const seed = await db.seed.findFirst({
+          where: {
+            ownerId: byUserId,
+            issuerId: ofUserId,
+          },
+        });
+        if (seed == null) {
+          throw new Error('Seed not found');
+        }
+
+        // Ok, we have a seed: let's build and execute the txn
+        const tx = new TransactionBlock();
+        const shares = await dunbarClient.getSharesForUser(byUser.wallet.publicKey);
+        console.log('shares', shares);
+        // @ts-ignore
+        console.log('shares', shares[0].data.content);
+
+        // @ts-ignore
+        const shareToSell = shares.find(share => share.data.content.fields.user_address === ofUser.wallet.publicKey);
+        // If this is the only share, then we need to remove them from the chat
+        // @ts-ignore
+        const shouldRemoveFromChat = shares.filter(share => share.data.content.fields.user_address === ofUser.wallet.publicKey).length === 1;
+        if (shareToSell == null) {
+          throw new Error('Share not found');
+        }
+        // @ts-ignore
+        const shareToSellId = shareToSell.data.content.fields.id.id;
+        console.log('shareToSellId', shareToSellId);
+
+        // Ok, now to actually sell the txn
+        await dunbarClient.sellShares(tx, {
+          userId: ofUserObjectId,
+          sharesId: shareToSellId,
+        });
+        const keypair = deriveKeypair(byUser.wallet.mnemonic);
+        const result = await sui.signAndExecuteTransactionBlock({
+          transactionBlock: tx,
+          signer: keypair,
+          options: {
+            showEvents: true,
+            showEffects: true,
+            showObjectChanges: true,
+            showBalanceChanges: true,
+          },
+        });
+        console.log('result', result);
+
+        // Ok, now delete the seed
+        await db.seed.delete({
+          where: {
+            id: seed.id,
+          },
+        });
+
+        // If there are no more seeds, then remove from stream
+        if (shouldRemoveFromChat) {
+          console.log('shouldRemoveFromChat', shouldRemoveFromChat, 'removing');
+          // also remove from stream
+          const channelId = ofUserId;
+          const filter = { id: { $eq: channelId } };
+          const channels = await stream.queryChannels(filter, undefined, {
+            state: true,
+          });
+          const channel = channels[0];
+          if (channel == null) {
+            throw new Error('Channel not found');
+          }
+          channel.removeMembers([byUserId]);
+
+          // Also remove participant in db
+          await db.participant.deleteMany({
+            where: {
+              channelId: ofUserId,
+              userId: byUserId,
+            },
+          });
+        }
+
+        return { success: true };
+      } catch (err) {
+        console.log('err', err);
+        return { success: false };
+      }
+    },
+
+    withdraw: async function (
+      userId: string,
+      address: string,
+    ) {
+      console.log('withdraw here')
+      console.log('userId', userId, address)
+      // TODO: ensure it's a real address
+      const user = await db.user.findUnique({
+        where: {
+          id: userId,
+        },
+        include: {
+          wallet: true,
+        },
+      });
+      if (!user) {
+        throw new Error('User not found');
+      }
+      const wallet = user.wallet;
+      if (!wallet) {
+        throw new Error('User does not have a wallet');
+      }
+
+      const keypair = deriveKeypair(wallet.mnemonic);
+
+      const balance = await sui.getBalance({
+        owner: wallet.publicKey,
+      });
+      const totalBalance = balance.totalBalance
+      console.log('got balance', totalBalance)
+      const amountToSend = BigInt(totalBalance) - GAS_BUDGET;
+      console.log('amountToSend', amountToSend)
+
+      const txb = new TransactionBlock();
+      txb.setGasBudget(GAS_BUDGET);
+
+			const [coin] = txb.splitCoins(txb.gas, [txb.pure(amountToSend)]);
+			txb.transferObjects([coin], txb.pure(address));
+
+      const result = await sui.signAndExecuteTransactionBlock({
+        transactionBlock: txb,
+        signer: keypair,
+        options: {
+          showEvents: true,
+          showEffects: true,
+          showObjectChanges: true,
+          showBalanceChanges: true,
+        },
+      });
+      console.log('result', result);
+      console.log(result.balanceChanges);
+      return true
+    },
+    getUserPrices: async function (userId: string) {
+      const user = await db.user.findUnique({
+        where: {
+          id: userId,
+        },
+      });
+      if (user == null || user.userObjectId == null) {
+        throw new Error('User not found');
+      }
+      return await dunbarClient.getUserPrice(user.userObjectId);
+    },
+    getEvents: async function (userId: string) {
+      const user = await db.user.findUnique({
+        where: {
+          id: userId,
+        },
+        include: {
+          wallet: true,
+        },
+      });
+      if (user == null) {
+        throw new Error('User not found');
+      }
+      if (user.userObjectId == null || user.wallet == null) {
+        return []
+      }
+
+      const userAddress = user.wallet?.publicKey;
+
+      const res = await dunbarClient.getRecentTrades();
+      let result = []
+      for (const trade of res) {
+        if (trade.trader === userAddress) {
+          const target = await db.wallet.findUnique({
+            where: {
+              publicKey: trade.user,
+            },
+            include: {
+              user: true,
+            },
+          });
+          if (target?.user[0] == null) {
+            continue;
+          }
+          result.push({
+            ...trade,
+            user: target.user[0],
+          })
+        }
+      }
+      console.log('res', result);
+      return result
     },
   };
 };

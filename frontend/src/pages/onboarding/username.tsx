@@ -28,7 +28,7 @@ export default function Username() {
             },
         })
         await updateUser()
-        router.push('/onboarding/avatar')
+        router.push('/')
     }
 
     return (

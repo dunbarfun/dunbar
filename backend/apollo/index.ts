@@ -12,8 +12,6 @@ import { useServer } from 'graphql-ws/lib/use/ws';
 import jwt from 'jsonwebtoken';
 
 import usersSchema from '@/apollo/schemas/users';
-import channelsSchema from '@/apollo/schemas/channels';
-import messagesSchema from '@/apollo/schemas/messages';
 
 import enums from '@/apollo/enums';
 import types from '@/apollo/types';
@@ -71,10 +69,6 @@ export default async (deps: Dependencies) => {
 
   const { typeDefs: usersTypedefs, resolvers: usersResolvers } =
     usersSchema(deps);
-  const { typeDefs: channelsTypedefs, resolvers: channelsResolvers } =
-    channelsSchema(deps);
-  const { typeDefs: messagesTypedefs, resolvers: messagesResolvers } =
-    messagesSchema(deps);
 
   const schema = makeExecutableSchema({
     typeDefs: [
@@ -82,13 +76,9 @@ export default async (deps: Dependencies) => {
       enums,
       ...types,
       usersTypedefs,
-      channelsTypedefs,
-      messagesTypedefs,
     ],
     resolvers: merge(
       usersResolvers,
-      channelsResolvers,
-      messagesResolvers,
     ),
   });
   const schemaWithMiddleware = applyMiddleware(schema, ...middleware);

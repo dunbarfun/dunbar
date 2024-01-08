@@ -11,6 +11,9 @@ import useStore from '@/stores'
 import useUpdateUser from '@/hooks/useUpdateUser'
 import { QRCodeSVG } from 'qrcode.react'
 import { copyToClipboard } from '@/utils/address'
+import { apollo, gql } from '@/lib/apollo'
+
+const MIST_PER_SUI = 1_000_000_000;
 
 export function DepositSheet() {
     const user = useStore((state) => state.user.user)
@@ -44,15 +47,55 @@ export function DepositSheet() {
     )
 }
 
-const TRANSACTION_TYPE_TO_ACTION: [any, string] = {
-    BUY: 'bought',
-    SELL: 'sold',
-    MINT: 'minted',
+export function WithdrawSheet() {
+    const user = useStore((state) => state.user.user)
+    const [withdrawAddress, setWithdrawAddress] = useState('')
+
+    return (
+        <Sheet.Container className="p-4">
+            <Sheet.Header />
+            <Sheet.Content className="flex flex-col items-center">
+                <Image alt="wallet" src="/wallet.png" width={80} height={80} />
+                <h1 className="font-medium text-2xl mt-4">
+                  Withdraw funds from your wallet
+                </h1>
+                <h1 className="text-base text-neutral-500 font-medium mt-2 mb-4">
+                  Enter the SUI wallet address you want to withdraw all your funds to.
+                </h1>
+                <input
+                  value={withdrawAddress}
+                  onChange={(e) => setWithdrawAddress(e.target.value)}
+                  className="bg-rounded bg-neutral-100 focus:outline-none  text-black font-medium h-12 px-4 rounded-full w-full"
+                  placeholder="Enter wallet address"
+                />
+
+                <Button
+                    onClick={async () => {
+                      // TODO: check if address is valid
+                      await apollo.mutate({
+                        mutation: gql`mutation Withdraw($address: String!) {
+                          withdraw(address: $address)
+                        }`,
+                        variables: {
+                          address: withdrawAddress
+                        }
+                      })
+                      window.alert('Withdrawal completed!')
+                    }}
+                    className="text-xl w-4/5 mt-4"
+                >
+                  Withdraw
+                </Button>
+            </Sheet.Content>
+        </Sheet.Container>
+    )
 }
+
 
 export default function Profile() {
     const logout = useLogout()
     const [isOpen, setOpen] = useState(false)
+    const [isWithdrawOpen, setWithdrawOpen] = useState(false)
     const user = useStore((state) => state.user.user)
     const updateUser = useUpdateUser()
 
@@ -73,6 +116,14 @@ export default function Profile() {
                 >
                     <DepositSheet address={user?.wallet?.publicKey} />
                     <Sheet.Backdrop onTap={() => setOpen(false)} />
+                </Sheet>
+                <Sheet
+                    snapPoints={snapPoints}
+                    isOpen={isWithdrawOpen}
+                    onClose={() => setWithdrawOpen(false)}
+                >
+                    <WithdrawSheet address={user?.wallet?.publicKey} />
+                    <Sheet.Backdrop onTap={() => setWithdrawOpen(false)} />
                 </Sheet>
 
                 <Menu as="div" className="relative inline-block text-left">
@@ -116,7 +167,7 @@ export default function Profile() {
             </div>
             <div className="mt-2 mb-8 flex flex-row">
                 <Image
-                    src={user.avatar}
+                    src={user?.avatar || '/tree.png'}
                     width={80}
                     height={80}
                     className="rounded-full"
@@ -154,31 +205,63 @@ export default function Profile() {
                 >
                     Deposit
                 </button>
+                <button
+                    onClick={() => setWithdrawOpen(true)}
+                    className="bg-black rounded-full p-4 text-white font-bold text-xl"
+                >
+                    Withdraw
+                </button>
             </div>
-            <Activity txns={user?.transactions} />
+            <Activity
+            />
         </div>
     )
 }
 
-function Activity({ txns }) {
+function Activity() {
+  const [events, setEvents] = useState<any[]>([])
+  const user = useStore((state) => state.user.user)
+  useEffect(() => {
+    const main = async () => {
+      const res = await apollo.query({
+        query: gql`query GetEvents {
+          getEvents {
+            is_buy
+            price
+            user {
+              id
+              username
+              name
+              avatar
+            }
+          }
+        }`
+      })
+      console.log(res)
+      setEvents(res.data.getEvents)
+    }
+    setInterval(() => {
+      main()
+    }, 10 * 1000)
+  }, [])
     return (
         <div className="my-4 pb-20">
             <h1 className="font-semibold text-xl mb-4">Activity</h1>
-            {txns.map((o, idx) => (
+            {events.map((e, idx) => (
                 <div key={idx} className="flex flex-row gap-y-4 h-20">
                     <div className="relative items-start flex flex-col h-20 w-16">
                         <Image
                             height={40}
                             width={40}
                             className="rounded-full absolute"
-                            src={o.byUser.avatar}
+                            src={user?.avatar || '/tree.png'}
                             alt="avatar"
                         />
                         <Image
                             height={40}
                             width={40}
                             className="rounded-full absolute top-4 left-4"
-                            src={o.ofUser.avatar}
+                            src={e?.user?.avatar || '/tree.png'}
                             alt="avatar"
                         />
                     </div>
@@ -187,12 +270,12 @@ function Activity({ txns }) {
                             className="font-medium text-base ml-2 pt-2"
                             key={idx}
                         >
-                            {o.byUser.name} {TRANSACTION_TYPE_TO_ACTION[o.type]}{' '}
+                            {user.name} {e.is_buy ? 'bought' : 'sold'}{' '}
                             1 of{' '}
                             <span className="text-emerald-500">
-                                {o.ofUser.name}'s
+                                {e.user.name}'s
                             </span>{' '}
-                            seeds
+                            seeds for {e.price / MIST_PER_SUI} SUI
                         </div>
                     </div>
                 </div>

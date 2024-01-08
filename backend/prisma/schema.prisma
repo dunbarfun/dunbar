@@ -17,19 +17,20 @@ model User {
   name           String?
   avatar         String?
 
+  initialized  Boolean @default(false)
+  userObjectId String? @unique // SUI user object id
+
   participants Participant[]
-  transactions Transaction[]
 
   ownedSeeds  Seed[] @relation("owner")
   issuedSeeds Seed[] @relation("issuer")
 
   wallet Wallet? @relation(fields: [walletId], references: [id])
 
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   walletId  String?
   Channel   Channel[]
-  Bookmark  Bookmark[]
 
   @@index(fields: [createdAt])
   @@map("users")
@@ -38,13 +39,12 @@ model User {
 model Wallet {
   id String @id @default(cuid())
 
-  seed       String @unique
-  privateKey String @unique
-  publicKey  String @unique
+  mnemonic  String @unique
+  publicKey String @unique
 
   balance Float @default(0)
 
-  User User[]
+  user User[]
 
   @@map("wallets")
 }
@@ -63,28 +63,6 @@ model Seed {
   @@map("seeds")
 }
 
-enum TransactionType {
-  MINT
-  BUY
-  SELL
-}
-
-model Transaction {
-  id String @id @default(cuid())
-
-  type TransactionType
-  txid String          @unique
-
-  context Json
-
-  user   User   @relation(fields: [userId], references: [id])
-  userId String
-
-  createdAt DateTime @default(now())
-
-  @@map("transactions")
-}
-
 // Participant is a user in a channel
 model Participant {
   id String @id @default(cuid())
@@ -92,9 +70,8 @@ model Participant {
   user   User   @relation(fields: [userId], references: [id])
   userId String
 
-  channel   Channel   @relation(fields: [channelId], references: [id])
+  channel   Channel @relation(fields: [channelId], references: [id])
   channelId String
-  messages  Message[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -110,59 +87,11 @@ model Channel {
   ownerId String
 
   participants Participant[]
-  messages     Message[]
 
   isActive Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bookmarks Bookmark[]
-
   @@map("channels")
-}
-
-model Bookmark {
-  id String @id @default(cuid())
-
-  user   User   @relation(fields: [userId], references: [id])
-  userId String
-
-  channel   Channel @relation(fields: [channelId], references: [id])
-  channelId String
-
-  lastSeen String
-
-  @@unique([userId, channelId])
-  @@map("bookmarks")
-}
-
-enum MessageType {
-  TEXT
-  IMAGE
-  AUDIO
-}
-
-model Message {
-  id Int @id @default(autoincrement())
-
-  type    MessageType
-  message String
-  context Json
-
-  author   Participant @relation(fields: [authorId], references: [id])
-  authorId String
-
-  channel   Channel @relation(fields: [channelId], references: [id])
-  channelId String
-
-  isDeleted Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index(fields: [authorId, createdAt])
-  @@index(fields: [createdAt])
-  @@index(fields: [channelId])
-  @@map("messages")
 }

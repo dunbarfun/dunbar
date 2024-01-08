@@ -4,9 +4,6 @@ import http from 'http';
 import dbFactory from '@/lib/db';
 import streamFactory from '@/lib/stream'
 import userManagerFactory from '@/manager/userManager';
-import channelManagerFactory from '@/manager/channelManager';
-import messageManagerFactory from '@/manager/messageManager';
-import bookmarkManagerFactory from '@/manager/bookmarkManager';
 
 export default async () => {
   // Low level managers
@@ -16,15 +13,10 @@ export default async () => {
   const stream = streamFactory()
 
   // Managers
-  const channelManager = channelManagerFactory(db);
   const userManager = userManagerFactory(
     db,
     stream
   );
-  const messageManager = messageManagerFactory(
-    db,
-  );
-  const bookmarkManager = bookmarkManagerFactory(db);
 
   return {
     app,
@@ -32,8 +24,5 @@ export default async () => {
     db,
     stream,
     userManager,
-    channelManager,
-    messageManager,
-    bookmarkManager,
   };
 };

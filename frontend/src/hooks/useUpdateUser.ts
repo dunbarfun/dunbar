@@ -16,21 +16,6 @@ export const GET_ME_QUERY = gql`
                 balance
                 publicKey
             }
-            transactions {
-                id
-                type
-                priceSUI
-                byUser {
-                    id
-                    name
-                    avatar
-                }
-                ofUser {
-                    id
-                    name
-                    avatar
-                }
-            }
         }
     }
 `

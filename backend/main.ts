@@ -17,6 +17,8 @@ const main = async () => {
 
   if (process.env.ENVIRONMENT === 'production') {
     cron(deps);
+  } else {
+    cron(deps);
   }
 };
 

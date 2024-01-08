@@ -11,10 +11,12 @@ import { GET_USERS, MINT_SEED } from '@/graphql/users'
 import { apollo } from '@/lib/apollo'
 import useStore from '@/stores'
 import { truncateAddress } from '@/utils/address'
+import Spinner from '@/components/Spinner';
 import useUpdateUser from '@/hooks/useUpdateUser'
 
 export function MintSheet({ user, close }) {
     const me = useStore((state) => state.user.user)
+    const [minting, setMinting] = useState(false)
     const updateUser = useUpdateUser()
 
     async function mint() {
@@ -22,6 +24,7 @@ export function MintSheet({ user, close }) {
             alert('Insufficient funds, please top up your balance')
             return
         }
+        setMinting(true)
         await apollo.mutate({
             mutation: MINT_SEED,
             variables: {
@@ -30,6 +33,7 @@ export function MintSheet({ user, close }) {
             },
         })
         await updateUser()
+        setMinting(false)
         alert(`🌱 Minted ${user?.name}'s seed`)
         close()
     }
@@ -51,12 +55,13 @@ export function MintSheet({ user, close }) {
                 <h1 className="text-base text-neutral-500 font-medium mt-2"></h1>
                 <div className="p-4 flex flex-row items-center justify-between bg-neutral-200 w-4/5 text-neutral-600 rounded-xl">
                     <p>{truncateAddress(me?.wallet?.publicKey)}</p>
-                    <p>{me?.wallet?.balance} SUI</p>
+                    <p>You have {me?.wallet?.balance} SUI</p>
                 </div>
 
                 <Button
                     onClick={mint}
                     className="text-xl w-4/5 mt-4 mb-4 bg-gradient-to-b from-emerald-400 to-emerald-500"
+                  disabled={minting}
                 >
                     Complete Purchase
                 </Button>
@@ -71,7 +76,14 @@ export default function Discover() {
     const [searchTerm, setSearchTerm] = useState(undefined)
     const [selectedUser, setSelectedUser] = useState(null)
     const updateUser = useUpdateUser()
+    const me = useStore((state) => state.user.user)
+
     const mint = async (user: any) => {
+      if (me?.wallet?.balance == 0) {
+        alert('Your wallet has not been initialized! Please deposit some SUI.')
+        return
+      }
+
         await updateUser()
         setOpen(true)
         console.log('got user', user)
@@ -117,6 +129,7 @@ function UserList({ searchTerm, mint }: UserListProps) {
     const [users, setUsers] = useState(undefined)
     const me = useStore((state) => state.user.user)
     const [filteredUsers, setFilteredUsers] = useState(undefined)
+    const [loading, setLoading] = useState(true)
 
     useEffect(() => {
         async function fetchUsers() {
@@ -126,8 +139,12 @@ function UserList({ searchTerm, mint }: UserListProps) {
             const res = data?.getUsers?.filter((o) => o.id != me.id)
             setUsers(res)
             setFilteredUsers(res)
+            setLoading(false)
         }
 
+        setInterval(() => {
+          fetchUsers()
+        }, 3000)
         fetchUsers()
     }, [])
 
@@ -143,7 +160,23 @@ function UserList({ searchTerm, mint }: UserListProps) {
     }, [searchTerm])
 
     if (!filteredUsers || !users) {
-        return null
+      return (
+        <div
+          className="flex flex-col justify-center items-center mt-24"
+        >
+          <Spinner />
+        </div>
+      )
+    }
+
+    if (loading) {
+      return (
+        <div
+          className="flex flex-col justify-center items-center mt-24"
+        >
+          <Spinner />
+        </div>
+      )
     }
 
     return (
@@ -157,7 +190,7 @@ function UserList({ searchTerm, mint }: UserListProps) {
                         <Image
                             src={
                                 user.avatar ||
-                                'https://pbs.twimg.com/profile_images/1622015225573646336/jIHb2Pbs_400x400.jpg'
+                                '/tree.png'
                             }
                             width={60}
                             height={60}
